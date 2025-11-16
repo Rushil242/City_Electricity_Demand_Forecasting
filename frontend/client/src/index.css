@@ -1,4 +1,4 @@
-/* GOOD: Your variables are defined FIRST */
+/* 1. DEFINE your variables */
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -46,7 +46,7 @@
   }
 }
 
-/* Tailwind loads AFTER your variables are defined */
+/* 2. LOAD Tailwind */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
