@@ -5,3 +5,4 @@ xgboost
 tensorflow
 joblib
 flask
+flask-cors
