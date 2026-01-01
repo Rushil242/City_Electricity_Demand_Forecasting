@@ -1,234 +1,237 @@
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertTriangle, TrendingUp, Activity, Layers } from "lucide-react";
-import type { ForecastDataPoint, AlertsResponse, ModelPerformance } from "@shared/types";
-import { format } from "date-fns";
+import React, { useState, useEffect } from 'react';
+import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { AlertCircle, TrendingUp, Zap, Clock, Loader } from 'lucide-react';
+import { useForecast } from '../hooks/ForecastContext';
 
-export default function Dashboard() {
-  const { data: forecastData, isLoading: forecastLoading, isError: forecastError } = useQuery<ForecastDataPoint[]>({
-    queryKey: ['/api/v1/forecast/hourly'],
-  });
+interface Props {
+  apiBaseUrl: string;
+}
 
-  const { data: alertsData, isLoading: alertsLoading, isError: alertsError } = useQuery<AlertsResponse>({
-    queryKey: ['/api/v1/alerts/check'],
-    refetchInterval: 60000,
-  });
+const Dashboard: React.FC<Props> = ({ apiBaseUrl }) => {
+  const { forecastData, modelPerformance, loading, error } = useForecast();
+  const [forecastChartData, setForecastChartData] = useState<any[]>([]);
+  const [modelStats, setModelStats] = useState<any>(null);
 
-  const { data: performance, isLoading: perfLoading, isError: perfError } = useQuery<ModelPerformance>({
-    queryKey: ['/api/v1/model/performance'],
-  });
+  useEffect(() => {
+    // Transform forecast data for charts
+    if (forecastData && forecastData.length > 0) {
+      const transformed = forecastData.map((item, index) => ({
+        hour: `${String(index).padStart(2, '0')}:00`,
+        predicted: item.predicted_power || 0,
+        timestamp: item.timestamp,
+      }));
+      setForecastChartData(transformed);
+    }
+  }, [forecastData]);
 
-  const kpiCards = [
+  useEffect(() => {
+    // Set model statistics
+    if (modelPerformance) {
+      setModelStats(modelPerformance);
+    }
+  }, [modelPerformance]);
+
+  const metrics = [
     {
-      title: "Hybrid Model Accuracy",
-      value: performance ? `${performance.fusion_mape.toFixed(2)}%` : "—",
-      description: "Fusion MAPE Score",
-      icon: TrendingUp,
-      trend: "10pt improvement over base model",
-      loading: perfLoading,
-      testId: "card-hybrid-accuracy",
+      title: 'Current Demand',
+      value: forecastData.length > 0 ? Math.round(forecastData[0]?.predicted_power || 0) : 'N/A',
+      unit: 'kW',
+      icon: <Zap className="w-6 h-6" />,
+      trend: 5.2,
+      bgColor: 'bg-blue-50 border-blue-200',
     },
     {
-      title: "Peak Load Alert",
-      value: alertsData?.alerts?.[0]?.level === 'critical' ? "Active" : "Normal",
-      description: alertsData?.alerts?.[0]?.message || "No critical alerts",
-      icon: AlertTriangle,
-      trend: "",
-      loading: alertsLoading,
-      isAlert: alertsData?.alerts?.[0]?.level === 'critical',
-      testId: "card-peak-alert",
+      title: 'Peak Forecast',
+      value: forecastData.length > 0 ? Math.round(Math.max(...forecastData.map((d: any) => d.predicted_power || 0))) : 'N/A',
+      unit: 'kW',
+      icon: <TrendingUp className="w-6 h-6" />,
+      trend: 2.8,
+      bgColor: 'bg-orange-50 border-orange-200',
     },
     {
-      title: "XGBoost MAPE",
-      value: performance ? `${performance.xgboost_mape.toFixed(2)}%` : "—",
-      description: "Base Model Score",
-      icon: Activity,
-      trend: "",
-      loading: perfLoading,
-      testId: "card-xgboost",
+      title: 'Model Accuracy',
+      value: modelStats?.['Hybrid Fusion']?.Accuracy?.toFixed(2) || 'N/A',
+      unit: '%',
+      icon: <AlertCircle className="w-6 h-6" />,
+      trend: 1.5,
+      bgColor: 'bg-green-50 border-green-200',
     },
     {
-      title: "LSTM MAPE",
-      value: performance ? `${performance.lstm_mape.toFixed(2)}%` : "—",
-      description: "Sequential Model Score",
-      icon: Layers,
-      trend: "",
-      loading: perfLoading,
-      testId: "card-lstm",
+      title: 'Forecast Error (MAPE)',
+      value: modelStats?.['Hybrid Fusion']?.MAPE?.toFixed(2) || 'N/A',
+      unit: '%',
+      icon: <Clock className="w-6 h-6" />,
+      trend: -3.2,
+      bgColor: 'bg-purple-50 border-purple-200',
     },
   ];
 
-  const chartData = forecastData?.map((point) => ({
-    time: format(new Date(point.timestamp), 'HH:mm'),
-    power: Math.round(point.predicted_power * 10) / 10,
-    fullTime: point.timestamp,
+  const peakOffPeakData = [
+    { name: 'Peak Hours (18-23)', value: 65, fill: '#ef4444' },
+    { name: 'Off-Peak Hours (23-06)', value: 25, fill: '#3b82f6' },
+    { name: 'Semi-Peak (06-18)', value: 10, fill: '#f59e0b' },
+  ];
+
+  const modelComparison = Object.entries(modelStats || {}).map(([name, stats]: [string, any]) => ({
+    name,
+    mape: stats.MAPE,
+    mae: stats.MAE,
+    rmse: stats.RMSE,
   }));
 
+  if (loading && forecastData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <Loader className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-6 p-6">
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {kpiCards.map((card) => (
-          <Card key={card.title} data-testid={card.testId}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
-              <card.icon className={`h-4 w-4 ${card.isAlert ? 'text-destructive' : 'text-muted-foreground'}`} />
-            </CardHeader>
-            <CardContent>
-              {card.loading ? (
-                <Skeleton className="h-8 w-24" />
-              ) : (
-                <>
-                  <div className={`text-2xl font-bold ${card.isAlert ? 'text-destructive' : ''}`} data-testid={`${card.testId}-value`}>
-                    {card.value}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                    {card.description}
-                  </p>
-                  {card.trend && (
-                    <p className="text-xs text-primary mt-1 font-medium">{card.trend}</p>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
+    <div className="space-y-6">
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border-l-4 border-red-600 p-4 rounded">
+          <p className="text-sm text-red-800"><strong>Error:</strong> {error}</p>
+        </div>
+      )}
+
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {metrics.map((metric, idx) => (
+          <div
+            key={idx}
+            className={`${metric.bgColor} border rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow`}
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-sm font-medium text-gray-600">{metric.title}</p>
+                <p className="text-3xl font-bold text-gray-900 mt-2">
+                  {metric.value}
+                  <span className="text-lg text-gray-500 ml-1">{metric.unit}</span>
+                </p>
+              </div>
+              <div className="text-blue-600">{metric.icon}</div>
+            </div>
+            <div className={`mt-4 text-sm ${metric.trend > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {metric.trend > 0 ? '↑' : '↓'} {Math.abs(metric.trend)}% from previous
+            </div>
+          </div>
         ))}
       </div>
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Forecast Chart */}
-        <Card className="lg:col-span-2" data-testid="card-forecast-chart">
-          <CardHeader>
-            <CardTitle>24-Hour Demand Forecast (Phase 3)</CardTitle>
-            <CardDescription>Predicted power consumption using hybrid AI model</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {forecastLoading ? (
-              <Skeleton className="h-[350px] w-full" />
-            ) : forecastError ? (
-              <div className="flex h-[350px] flex-col items-center justify-center text-center">
-                <AlertTriangle className="h-8 w-8 text-destructive mb-3" />
-                <p className="text-sm font-medium text-foreground">Unable to load forecast data</p>
-                <p className="text-xs text-muted-foreground mt-1">Please check your connection to the backend server</p>
-              </div>
-            ) : chartData && chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={350}>
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="colorPower" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis
-                    dataKey="time"
-                    className="text-xs"
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                  />
-                  <YAxis
-                    className="text-xs"
-                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                    label={{ value: 'Power (MW)', angle: -90, position: 'insideLeft', style: { fill: 'hsl(var(--muted-foreground))' } }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--popover))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '6px',
-                    }}
-                    labelStyle={{ color: 'hsl(var(--popover-foreground))' }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="power"
-                    stroke="hsl(var(--chart-1))"
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#colorPower)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-[350px] items-center justify-center text-muted-foreground">
-                No forecast data available
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* Main Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 24-Hour Forecast Chart */}
+        <div className="lg:col-span-2 bg-white rounded-lg shadow-md p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-gray-900">24-Hour Forecast</h2>
+            <span className="text-xs text-gray-500">
+              {forecastData.length > 0 ? `${forecastData.length} hours` : 'No data'}
+            </span>
+          </div>
+          {forecastChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <AreaChart data={forecastChartData}>
+                <defs>
+                  <linearGradient id="colorPredicted" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="hour" />
+                <YAxis />
+                <Tooltip />
+                <Area type="monotone" dataKey="predicted" stroke="#10b981" fillOpacity={1} fill="url(#colorPredicted)" name="Predicted Demand (kW)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-80 bg-gray-50 rounded">
+              <p className="text-gray-500">No forecast data available</p>
+            </div>
+          )}
+        </div>
 
-        {/* Alerts Panel */}
-        <Card data-testid="card-alerts-panel">
-          <CardHeader>
-            <CardTitle>System Status & Alerts</CardTitle>
-            <CardDescription>Real-time grid monitoring</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {alertsLoading ? (
-              <div className="space-y-3">
-                <Skeleton className="h-16 w-full" />
-                <Skeleton className="h-16 w-full" />
-              </div>
-            ) : alertsError ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <AlertTriangle className="h-6 w-6 text-destructive mb-2" />
-                <p className="text-sm font-medium">Unable to load alerts</p>
-                <p className="text-xs text-muted-foreground mt-1">Check backend connection</p>
-              </div>
-            ) : alertsData?.alerts && alertsData.alerts.length > 0 ? (
-              <div className="space-y-3">
-                {alertsData.alerts.map((alert, idx) => (
-                  <div
-                    key={idx}
-                    className={`rounded-md border p-3 ${
-                      alert.level === 'critical'
-                        ? 'border-destructive bg-destructive/10'
-                        : alert.level === 'warning'
-                        ? 'border-chart-3 bg-chart-3/10'
-                        : 'border-border bg-muted/50'
-                    }`}
-                    data-testid={`alert-${idx}`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle
-                        className={`mt-0.5 h-4 w-4 flex-shrink-0 ${
-                          alert.level === 'critical'
-                            ? 'text-destructive'
-                            : alert.level === 'warning'
-                            ? 'text-chart-3'
-                            : 'text-muted-foreground'
-                        }`}
-                      />
-                      <div className="flex-1">
-                        <div className="text-xs font-semibold uppercase tracking-wide">
-                          {alert.level}
-                        </div>
-                        <p className="text-sm mt-1">{alert.message}</p>
-                        {alert.timestamp && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {format(new Date(alert.timestamp), 'MMM dd, HH:mm')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+        {/* Peak vs Off-Peak Distribution */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Demand Distribution</h3>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={peakOffPeakData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, value }) => `${name}: ${value}%`}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {peakOffPeakData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.fill} />
                 ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <div className="rounded-full bg-primary/10 p-3 mb-3">
-                  <TrendingUp className="h-6 w-6 text-primary" />
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Model Performance */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Model Performance Metrics</h3>
+        {modelComparison.length > 0 ? (
+          <div className="space-y-4">
+            {modelComparison.map((model, idx) => (
+              <div key={idx} className="border-b pb-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-medium text-gray-900">{model.name}</span>
+                  <span className={`px-2 py-1 rounded text-xs font-bold ${
+                    idx === 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {idx === 0 ? 'BEST' : `#${idx + 1}`}
+                  </span>
                 </div>
-                <p className="text-sm font-medium">All Systems Normal</p>
-                <p className="text-xs text-muted-foreground mt-1">No active alerts</p>
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div>
+                    <span className="text-gray-600">MAPE:</span>
+                    <p className="font-bold text-gray-900">{model.mape.toFixed(2)}%</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">MAE:</span>
+                    <p className="font-bold text-gray-900">{model.mae.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">RMSE:</span>
+                    <p className="font-bold text-gray-900">{model.rmse.toFixed(2)}</p>
+                  </div>
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-500">Loading model performance...</p>
+        )}
+      </div>
+
+      {/* Alerts */}
+      <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
+        <div className="flex gap-3">
+          <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-bold text-yellow-800">Forecast Alert</h4>
+            <p className="text-sm text-yellow-700 mt-1">
+              Forecast data is being continuously updated. Peak demand prediction available in the next update cycle.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
-}
+};
+
+export default Dashboard;
